@@ -56,9 +56,10 @@ const dbg = (patch) => {
 };
 const bump = (key) => dbg({ [key]: ((window.__mapDebug || {})[key] || 0) + 1 });
 
-
+const MAP_FLAVOR = import.meta.env.VITE_MAP_FLAVOR;
 const PMTILES_URL = import.meta.env.VITE_PMTILES_URL;
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
 
 
 const readPMTilesHeader = async (url, signal) => {
