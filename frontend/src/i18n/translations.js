@@ -6,6 +6,14 @@ const translations = {
     'common.language': 'Language',
     'common.unauthorized': "You don't have access to this page.",
 
+    'nav.account': 'Account menu',
+    'nav.orders': 'My orders',
+    'nav.newOrder': 'New order',
+    'nav.jobs': 'Jobs',
+    'nav.dashboard': 'Dashboard',
+    'nav.liveMap': 'Live map',
+    'nav.drivers': 'Drivers',
+
     'role.customer': 'Customer',
     'role.driver': 'Driver',
     'role.admin': 'Admin',
@@ -140,6 +148,14 @@ const translations = {
     'common.loading': 'جارٍ التحميل...',
     'common.language': 'اللغة',
     'common.unauthorized': 'ليس لديك صلاحية الوصول إلى هذه الصفحة.',
+
+    'nav.account': 'قائمة الحساب',
+    'nav.orders': 'طلباتي',
+    'nav.newOrder': 'طلب جديد',
+    'nav.jobs': 'المهام',
+    'nav.dashboard': 'لوحة التحكم',
+    'nav.liveMap': 'الخريطة المباشرة',
+    'nav.drivers': 'السائقون',
 
     'role.customer': 'عميل',
     'role.driver': 'سائق',

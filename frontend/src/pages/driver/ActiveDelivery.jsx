@@ -80,8 +80,8 @@ const ActiveDelivery = () => {
   if (myPos) markers.push({ id: 'driver', ...myPos, label: t('driver.you'), type: 'driver' });
 
   return (
-    <div className="max-w-5xl mx-auto p-6 grid md:grid-cols-3 gap-6">
-      <div className="md:col-span-2 h-[70vh] rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+    <div className="max-w-5xl mx-auto p-3 sm:p-6 grid md:grid-cols-3 gap-4 sm:gap-6">
+      <div className="md:col-span-2 h-[45vh] min-h-[280px] md:h-[70vh] md:min-h-[420px] rounded-2xl overflow-hidden border border-line shadow-sm">
         <LiveMap markers={markers} routeLine={order.route?.waypoints} followId="driver" />
       </div>
 

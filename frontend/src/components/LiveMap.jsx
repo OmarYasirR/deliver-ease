@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -170,33 +170,103 @@ const BaseTiles = () => {
   return null;
 };
 
-// Recenters the map whenever `center` changes (e.g. driver moves)
-const RecenterOnChange = ({ center, follow }) => {
+// Fits the view so every point (pickup, delivery, route line, driver) is visible, e.g. pickup + delivery.
+// Runs on mount and whenever the *static* content changes (not on every driver move), and re-fits when the
+// container is resized, as long as the user hasn't started panning/zooming themselves.
+const FitToContent = ({ points, fitKey, padding }) => {
   const map = useMap();
+  const latest = useRef(points);
+  latest.current = points;
+  const touched = useRef(false);
+
+  const fit = useCallback(() => {
+    const pts = latest.current;
+    const size = map.getSize();
+    if (!pts.length || !size.x || !size.y) return; // nothing to fit yet / container not laid out yet
+    map.fitBounds(L.latLngBounds(pts), { padding: [padding, padding], maxZoom: 16, animate: false });
+  }, [map, padding]);
+
   useEffect(() => {
-    if (follow && center) map.panTo(center);
-  }, [center, follow, map]);
+    touched.current = false;
+    map.invalidateSize(); // make sure Leaflet knows the container's real size before fitting
+    fit();
+  }, [fitKey, fit, map]);
+
+  useEffect(() => {
+    const el = map.getContainer();
+    const markTouched = () => {
+      touched.current = true;
+    };
+    el.addEventListener('pointerdown', markTouched);
+    el.addEventListener('wheel', markTouched, { passive: true });
+
+    let raf;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        map.invalidateSize();
+        if (!touched.current) fit();
+      });
+    });
+    ro.observe(el);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      el.removeEventListener('pointerdown', markTouched);
+      el.removeEventListener('wheel', markTouched);
+    };
+  }, [map, fit]);
+
   return null;
 };
+
+// Keeps the followed marker (the driver) in view. It only pans when the marker leaves the visible area,
+// so pickup and delivery stay on screen while the driver is inside the current view.
+const KeepInView = ({ lat, lng }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (lat == null || lng == null) return;
+    if (!map.getBounds().pad(-0.15).contains([lat, lng])) map.panTo([lat, lng]);
+  }, [lat, lng, map]);
+  return null;
+};
+
+const isPoint = (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]);
 
 /**
  * markers: [{ id, lat, lng, label, type: 'pickup'|'delivery'|'driver' }]
  * routeLine: [[lat,lng], ...] optional polyline
- * followId: marker id to auto-pan the map to as it moves
+ * followId: marker id to keep in view as it moves (pans only when it leaves the visible area)
+ * fit: on load, zoom to show all markers + the route (default true). It re-fits when the pickup/delivery/route
+ *      change or the container is resized (until the user pans/zooms). `center`/`zoom` are only the initial view.
+ * fitKey: optional extra value; change it to force a re-fit.
  */
-const LiveMap = ({ markers = [], routeLine = [], center, zoom = 16, followId, height = '100%' }) => {
+const LiveMap = ({
+  markers = [],
+  routeLine = [],
+  center,
+  zoom = 13,
+  followId,
+  fit = true,
+  fitPadding = 48,
+  fitKey,
+  height = '100%',
+}) => {
   const fallbackCenter = center || (markers[0] ? [markers[0].lat, markers[0].lng] : [0, 0]);
   const followMarker = markers.find((m) => m.id === followId);
 
+  const points = [...markers.map((m) => [m.lat, m.lng]), ...routeLine].filter(isPoint);
+  const autoKey =
+    markers
+      .filter((m) => m.type !== 'driver')
+      .map((m) => `${m.id}:${m.lat},${m.lng}`)
+      .join('|') + `#${routeLine.length}`;
+
   return (
-    <div style={{ height, width: '100%' }}>
-      <MapContainer
-        style={{height: '100%'}}
-        center={fallbackCenter} 
-        zoom={zoom}
-        scrollWheelZoom={true}
-        maxZoom={16}
-        >
+    // `isolate` keeps Leaflet's internal z-indexes from covering the sticky navbar
+    <div className="isolate" style={{ height, width: '100%' }}>
+      <MapContainer center={fallbackCenter} zoom={zoom} scrollWheelZoom>
         <BaseTiles />
 
         {routeLine.length > 1 && <Polyline positions={routeLine} pathOptions={{ color: '#0D9488', weight: 4, opacity: 0.6 }} />}
@@ -207,7 +277,8 @@ const LiveMap = ({ markers = [], routeLine = [], center, zoom = 16, followId, he
           </Marker>
         ))}
 
-        {followMarker && <RecenterOnChange center={[followMarker.lat, followMarker.lng]} follow />}
+        {fit && <FitToContent points={points} fitKey={`${fitKey ?? ''}|${autoKey}`} padding={fitPadding} />}
+        {followMarker && <KeepInView lat={followMarker.lat} lng={followMarker.lng} />}
       </MapContainer>
     </div>
   );

@@ -50,9 +50,9 @@ const GlobalMap = () => {
   });
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto p-3 sm:p-6">
       <h1 className="text-xl font-bold text-gray-800 mb-4">{t('admin.globalMap')}</h1>
-      <div className="h-[75vh] rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+      <div className="h-[60vh] min-h-[320px] md:h-[75vh] rounded-2xl overflow-hidden border border-line shadow-sm">
         <LiveMap markers={markers} center={markers[0] ? [markers[0].lat, markers[0].lng] : [0, 0]} zoom={4} />
       </div>
       <p className="text-xs text-gray-400 mt-2">{t('admin.activeShown', { count: orders.length })}</p>

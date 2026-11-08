@@ -58,8 +58,8 @@ const TrackOrder = () => {
   if (driverPos) markers.push({ id: 'driver', ...driverPos, label: t('order.driverLocation'), type: 'driver' });
 
   return (
-    <div className="max-w-5xl mx-auto p-6 grid md:grid-cols-3 gap-6">
-      <div className="md:col-span-2 h-[70vh] rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+    <div className="max-w-5xl mx-auto p-3 sm:p-6 grid md:grid-cols-3 gap-4 sm:gap-6">
+      <div className="md:col-span-2 h-[45vh] min-h-[280px] md:h-[70vh] md:min-h-[420px] rounded-2xl overflow-hidden border border-line shadow-sm">
         <LiveMap
           markers={markers}
           routeLine={order.route?.waypoints}
@@ -69,29 +69,33 @@ const TrackOrder = () => {
       </div>
 
       <div className="space-y-4">
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="bg-surface p-4 rounded-2xl border border-line shadow-sm">
           <h2 className="font-semibold text-gray-800 mb-2">{t('order.status')}</h2>
           <span className={`status-badge status-${order.status.replace(/\s+/g, '_')}`}>{statusLabel(order.status)}</span>
           {!connected && <p className="text-xs text-accent-700 mt-2">{t('order.reconnecting')}</p>}
         </div>
 
         {order.driver && (
-          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+          <div className="bg-surface p-4 rounded-2xl border border-line shadow-sm">
             <h2 className="font-semibold text-gray-800 mb-2">{t('order.driver')}</h2>
             <p className="text-sm text-gray-600">{order.driver.name}</p>
-            <p className="text-sm text-gray-500">{order.driver.phone}</p>
+            {order.driver.phone && (
+              <a href={`tel:${order.driver.phone}`} className="text-sm text-brand-700 font-medium hover:underline" dir="ltr">
+                {order.driver.phone}
+              </a>
+            )}
           </div>
         )}
 
         {order.route?.distanceMeters && (
-          <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+          <div className="bg-surface p-4 rounded-2xl border border-line shadow-sm">
             <h2 className="font-semibold text-gray-800 mb-2">{t('order.route')}</h2>
             <p className="text-sm text-gray-600">{t('order.km', { value: (order.route.distanceMeters / 1000).toFixed(1) })}</p>
             <p className="text-sm text-gray-500">{t('order.minDrive', { value: Math.round(order.route.durationSeconds / 60) })}</p>
           </div>
         )}
 
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="bg-surface p-4 rounded-2xl border border-line shadow-sm">
           <h2 className="font-semibold text-gray-800 mb-2">{t('order.parcel')}</h2>
           <p className="text-sm text-gray-600">{order.parcel.weightKg} kg · {t(`priority.${order.priority}`)}</p>
           {order.parcel.instructions && (
