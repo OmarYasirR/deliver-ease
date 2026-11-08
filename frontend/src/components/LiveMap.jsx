@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FaCarSide } from 'react-icons/fa';
 import { leafletLayer } from 'protomaps-leaflet';
 import { useI18n } from '../context/I18nContext';
 
-// Themed SVG pins (also avoids Leaflet's default marker images, which break under bundlers).
 const pinIcon = (fill) =>
   new L.DivIcon({
     className: '',
@@ -14,11 +14,10 @@ const pinIcon = (fill) =>
     html: `<svg width="30" height="38" viewBox="0 0 30 38" style="display:block;transform:translate(-50%,-100%)"><path d="M15 1C7.8 1 2 6.8 2 14c0 9.5 13 23 13 23s13-13.5 13-23C28 6.8 22.2 1 15 1z" fill="${fill}" stroke="#fff" stroke-width="2"/><circle cx="15" cy="14" r="5" fill="#fff"/></svg>`,
   });
 
-const pickupIcon = pinIcon('#0D9488'); // primary
-const deliveryIcon = pinIcon('#FB7185'); // accent
-const defaultIcon = pinIcon('#115E59'); // primary-dark
+const pickupIcon = pinIcon('#0D9488');
+const deliveryIcon = pinIcon('#FB7185');
+const defaultIcon = pinIcon('#115E59');
 
-// Driver marker: accent badge with a car icon (react-icons rendered to static SVG markup).
 const driverIcon = new L.DivIcon({
   className: '',
   iconSize: [0, 0],
@@ -29,8 +28,8 @@ const driverIcon = new L.DivIcon({
         width: 36,
         height: 36,
         borderRadius: '50%',
-        background: '#FB7185', // accent
-        color: '#3B0713', // on-accent
+        background: '#FB7185',
+        color: '#3B0713',
         border: '3px solid #fff',
         boxShadow: '0 2px 8px rgba(15, 43, 41, 0.35)',
         display: 'flex',
@@ -52,17 +51,20 @@ const iconFor = (m) => {
 };
 
 
-// Base map: self-hosted PMTiles (vector) when VITE_PMTILES_URL is set, otherwise OSM raster tiles.
+const dbg = (patch) => {
+  window.__mapDebug = { ...(window.__mapDebug || {}), ...patch };
+};
+const bump = (key) => dbg({ [key]: ((window.__mapDebug || {})[key] || 0) + 1 });
+
+
 const PMTILES_URL = import.meta.env.VITE_PMTILES_URL;
-const MAP_FLAVOR = import.meta.env.VITE_MAP_FLAVOR || 'light'; // light | dark | white | grayscale | black
 const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-// Reads the 127-byte PMTiles v3 header with a Range request. This both verifies that the file is
-// reachable (CORS + Range support) and tells us which area / zoom levels it covers.
+
 const readPMTilesHeader = async (url, signal) => {
   const res = await fetch(url, { headers: { Range: 'bytes=0-126' }, signal });
   if (res.status !== 206) {
-    res.body?.cancel?.(); // don't download the whole file if Range isn't supported
+    res.body?.cancel?.(); 
     throw new Error(
       `Range request returned HTTP ${res.status} instead of 206. The file URL is wrong, or the host/CDN does not support Range requests.`
     );
@@ -72,8 +74,6 @@ const readPMTilesHeader = async (url, signal) => {
   const magic = String.fromCharCode(...new Uint8Array(dv.buffer, 0, 7));
   if (magic !== 'PMTiles') throw new Error('The URL did not return a PMTiles file. Check VITE_PMTILES_URL.');
 
-  // The PMTiles client sends `If-Match: <etag>` on later reads, which triggers a CORS preflight.
-  // If the bucket/CDN doesn't allow that header, tiles silently fail to load (gray map), so test it here.
   if (!etag) {
     console.warn('[PMTiles] The ETag response header is not readable. Add "etag" to the CORS ExposeHeaders (and the CloudFront response headers policy).');
   } else {
@@ -100,21 +100,44 @@ const readPMTilesHeader = async (url, signal) => {
   };
 };
 
+const tileHasContent = (el) => {
+  if (!el) return null;
+  const canvases = el.tagName === 'CANVAS' ? [el] : Array.from(el.querySelectorAll?.('canvas') || []);
+  if (!canvases.length) return null;
+  try {
+    for (const cv of canvases) {
+      const ctx = cv.getContext('2d');
+      if (!ctx || !cv.width || !cv.height) continue;
+      for (let i = 1; i <= 4; i += 1) {
+        for (let j = 1; j <= 4; j += 1) {
+          const px = ctx.getImageData(Math.floor((cv.width * i) / 5), Math.floor((cv.height * j) / 5), 1, 1).data;
+          if (px[3] > 0) return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return null;
+  }
+};
+
 const BaseTiles = () => {
   const map = useMap();
   const { lang } = useI18n();
-  const [source, setSource] = useState(PMTILES_URL ? 'checking' : 'osm'); // checking | pmtiles | osm
+  const [source, setSource] = useState(PMTILES_URL ? 'checking' : 'osm');
+  useEffect(() => {
+    dbg({ source, pmtilesUrl: PMTILES_URL || '(not set: using OSM tiles)' });
+  }, [source]);
 
-  // 1) Verify the PMTiles file once; fall back to OSM tiles if it can't be read (no more silent gray map).
   useEffect(() => {
     if (!PMTILES_URL) return undefined;
     const controller = new AbortController();
     readPMTilesHeader(PMTILES_URL, controller.signal)
       .then((h) => {
+        dbg({ coverage: `lon ${h.minLon.toFixed(2)}..${h.maxLon.toFixed(2)}, lat ${h.minLat.toFixed(2)}..${h.maxLat.toFixed(2)}, z${h.minZoom}-${h.maxZoom}` });
         console.info(
           `[PMTiles] OK. Coverage lon ${h.minLon.toFixed(2)}..${h.maxLon.toFixed(2)}, lat ${h.minLat.toFixed(2)}..${h.maxLat.toFixed(2)}, zoom ${h.minZoom}-${h.maxZoom}`
         );
-        // Warn (without switching) if the current view is outside the file's area: that renders gray tiles.
         const c = map.getCenter();
         if (c.lng < h.minLon || c.lng > h.maxLon || c.lat < h.minLat || c.lat > h.maxLat) {
           console.warn(
@@ -125,6 +148,7 @@ const BaseTiles = () => {
       })
       .catch((err) => {
         if (err.name === 'AbortError') return;
+        dbg({ error: err.message });
         console.warn(
           `[PMTiles] Could not read ${PMTILES_URL}: ${err.message} Falling back to OpenStreetMap tiles. If this is a CORS error, fix the bucket/CDN CORS rules (docs/self-hosted-tiles.md).`
         );
@@ -133,21 +157,33 @@ const BaseTiles = () => {
     return () => controller.abort();
   }, [map]);
 
-  // 2) Mount the vector layer once the file is verified.
+
   useEffect(() => {
     if (source !== 'pmtiles') return undefined;
     const layer = leafletLayer({
       url: PMTILES_URL,
       flavor: MAP_FLAVOR,
-      lang: lang === 'ar' ? 'ar' : 'en', // label language follows the app language
+      lang: lang === 'ar' ? 'ar' : 'en',
       attribution: `${OSM_ATTRIBUTION} · <a href="https://protomaps.com">Protomaps</a>`,
     });
     let loaded = 0;
-    layer.on('tileload', () => {
+    dbg({ tilesLoaded: 0, tileErrors: 0 });
+    let measured = 0;
+    let withContent = 0;
+    layer.on('tileload', (e) => {
       if (loaded === 0) console.info('[PMTiles] Tiles are rendering.');
       loaded += 1;
+      bump('tilesLoaded');
+      const has = tileHasContent(e.tile);
+      if (has !== null) {
+        measured += 1;
+        if (has) withContent += 1;
+      }
     });
-    layer.on('tileerror', (e) => console.warn('[PMTiles] Tile error:', e.error || e));
+    layer.on('tileerror', (e) => {
+      bump('tileErrors');
+      console.warn('[PMTiles] Tile error:', e.error || e);
+    });
     layer.addTo(map);
 
     const watchdog = setTimeout(() => {
@@ -157,22 +193,79 @@ const BaseTiles = () => {
         );
       }
     }, 5000);
+   
+    const blankWatch = setTimeout(() => {
+      if (measured >= 3 && withContent === 0) {
+        console.warn(
+          '[PMTiles] Tiles loaded but are all blank (the file has no drawable basemap data for this view, or its schema does not match protomaps-leaflet). Falling back to OpenStreetMap tiles.'
+        );
+        dbg({ error: 'all PMTiles tiles are blank, using OSM' });
+        setSource('osm');
+      }
+    }, 6000);
 
     return () => {
       clearTimeout(watchdog);
+      clearTimeout(blankWatch);
       map.removeLayer(layer);
     };
   }, [map, lang, source]);
 
   if (source === 'osm') {
-    return <TileLayer attribution={OSM_ATTRIBUTION} url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />;
+    return (
+      <TileLayer
+        attribution={OSM_ATTRIBUTION}
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        eventHandlers={{ tileload: () => bump('tilesLoaded'), tileerror: () => bump('tileErrors') }}
+      />
+    );
   }
   return null;
 };
 
-// Fits the view so every point (pickup, delivery, route line, driver) is visible, e.g. pickup + delivery.
-// Runs on mount and whenever the *static* content changes (not on every driver move), and re-fits when the
-// container is resized, as long as the user hasn't started panning/zooming themselves.
+
+const MapDebug = ({ markers, routeLen }) => {
+  const map = useMap();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const refresh = () => tick((n) => n + 1);
+    map.on('moveend zoomend resize', refresh);
+    const id = setInterval(refresh, 1000);
+    return () => {
+      map.off('moveend zoomend resize', refresh);
+      clearInterval(id);
+    };
+  }, [map]);
+
+  const size = map.getSize();
+  const c = map.getCenter();
+  const b = map.getBounds();
+  const d = window.__mapDebug || {};
+  const lines = [
+    `container: ${size.x} x ${size.y}px   zoom: ${map.getZoom()}`,
+    `center: ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`,
+    `markers: ${markers.length}  route points: ${routeLen}`,
+    ...markers.map((m) => `  ${m.id}: ${m.lat?.toFixed?.(4)}, ${m.lng?.toFixed?.(4)}  ${b.contains([m.lat, m.lng]) ? 'in view' : 'OUT OF VIEW'}`),
+    `basemap: ${d.source}  tiles ok: ${d.tilesLoaded || 0}  errors: ${d.tileErrors || 0}`,
+    `file: ${d.pmtilesUrl}`,
+    d.coverage ? `coverage: ${d.coverage}` : null,
+    d.error ? `ERROR: ${d.error}` : null,
+  ].filter(Boolean);
+
+  return (
+    <div
+      style={{
+        position: 'absolute', left: 8, bottom: 28, zIndex: 1000, pointerEvents: 'none', maxWidth: 'calc(100% - 16px)',
+        background: 'rgba(15,43,41,.88)', color: '#fff', font: '11px/1.45 ui-monospace, Consolas, monospace',
+        padding: '6px 8px', borderRadius: 8, whiteSpace: 'pre-wrap', wordBreak: 'break-all', direction: 'ltr', textAlign: 'left',
+      }}
+    >
+      {lines.join('\n')}
+    </div>
+  );
+};
+
+
 const FitToContent = ({ points, fitKey, padding }) => {
   const map = useMap();
   const latest = useRef(points);
@@ -182,13 +275,13 @@ const FitToContent = ({ points, fitKey, padding }) => {
   const fit = useCallback(() => {
     const pts = latest.current;
     const size = map.getSize();
-    if (!pts.length || !size.x || !size.y) return; // nothing to fit yet / container not laid out yet
+    if (!pts.length || !size.x || !size.y) return;
     map.fitBounds(L.latLngBounds(pts), { padding: [padding, padding], maxZoom: 16, animate: false });
   }, [map, padding]);
 
   useEffect(() => {
     touched.current = false;
-    map.invalidateSize(); // make sure Leaflet knows the container's real size before fitting
+    map.invalidateSize(); 
     fit();
   }, [fitKey, fit, map]);
 
@@ -221,8 +314,7 @@ const FitToContent = ({ points, fitKey, padding }) => {
   return null;
 };
 
-// Keeps the followed marker (the driver) in view. It only pans when the marker leaves the visible area,
-// so pickup and delivery stay on screen while the driver is inside the current view.
+
 const KeepInView = ({ lat, lng }) => {
   const map = useMap();
   useEffect(() => {
@@ -232,16 +324,11 @@ const KeepInView = ({ lat, lng }) => {
   return null;
 };
 
+const MAP_DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('mapdebug');
+
 const isPoint = (p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]);
 
-/**
- * markers: [{ id, lat, lng, label, type: 'pickup'|'delivery'|'driver' }]
- * routeLine: [[lat,lng], ...] optional polyline
- * followId: marker id to keep in view as it moves (pans only when it leaves the visible area)
- * fit: on load, zoom to show all markers + the route (default true). It re-fits when the pickup/delivery/route
- *      change or the container is resized (until the user pans/zooms). `center`/`zoom` are only the initial view.
- * fitKey: optional extra value; change it to force a re-fit.
- */
+
 const LiveMap = ({
   markers = [],
   routeLine = [],
@@ -264,9 +351,15 @@ const LiveMap = ({
       .join('|') + `#${routeLine.length}`;
 
   return (
-    // `isolate` keeps Leaflet's internal z-indexes from covering the sticky navbar
+
     <div className="isolate" style={{ height, width: '100%' }}>
-      <MapContainer center={fallbackCenter} zoom={zoom} scrollWheelZoom>
+      <MapContainer 
+      center={fallbackCenter} 
+      zoom={zoom} 
+      maxZoom={14} 
+      scrollWheelZoom
+      style={{ height: '100%', width: '100%' }}
+    >
         <BaseTiles />
 
         {routeLine.length > 1 && <Polyline positions={routeLine} pathOptions={{ color: '#0D9488', weight: 4, opacity: 0.6 }} />}
@@ -279,6 +372,7 @@ const LiveMap = ({
 
         {fit && <FitToContent points={points} fitKey={`${fitKey ?? ''}|${autoKey}`} padding={fitPadding} />}
         {followMarker && <KeepInView lat={followMarker.lat} lng={followMarker.lng} />}
+        {MAP_DEBUG && <MapDebug markers={markers} routeLen={routeLine.length} />}
       </MapContainer>
     </div>
   );
